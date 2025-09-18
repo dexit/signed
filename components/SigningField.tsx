@@ -1,5 +1,5 @@
 import React from 'react';
-import { type SignatureField, type Recipient, type Attachment, FieldType } from '../types';
+import { type SignatureField, type Recipient, type Attachment, FieldType, PreviewInfo } from '../types';
 import { Icon } from './Icon';
 
 interface SigningFieldProps {
@@ -9,6 +9,7 @@ interface SigningFieldProps {
   onFileUpload: (fieldId: string, file: File) => void;
   onFileRemove: (fieldId: string) => void;
   attachment?: Attachment;
+  previewInfo?: PreviewInfo | null;
 }
 
 const getFieldIcon = (type: FieldType) => {
@@ -22,7 +23,7 @@ const getFieldIcon = (type: FieldType) => {
     }
 };
 
-const SigningField: React.FC<SigningFieldProps> = ({ field, recipient, isCurrentUserField, onFileUpload, onFileRemove, attachment }) => {
+const SigningField: React.FC<SigningFieldProps> = ({ field, recipient, isCurrentUserField, onFileUpload, onFileRemove, attachment, previewInfo }) => {
   const color = recipient?.color || '#888';
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -42,7 +43,29 @@ const SigningField: React.FC<SigningFieldProps> = ({ field, recipient, isCurrent
     boxSizing: 'border-box',
   };
 
+  const renderPreview = () => {
+    if (!previewInfo) return null;
+
+    switch (field.type) {
+      case 'SIGNATURE':
+        return previewInfo.signatureDataUrl ? <img src={previewInfo.signatureDataUrl} className="w-full h-full object-contain p-1" alt="Sig Preview" /> : null;
+      case 'INITIALS':
+        return previewInfo.initialsDataUrl ? <img src={previewInfo.initialsDataUrl} className="w-full h-full object-contain p-1" alt="Initials Preview" /> : null;
+      case 'FULL_NAME':
+        return <span className="font-sans-signature font-semibold text-sm p-1">{previewInfo.fullName}</span>;
+      case 'DATE':
+        return <span className="font-sans-signature text-xs p-1">{previewInfo.date}</span>;
+      default:
+        return null;
+    }
+  }
+
   const content = () => {
+    if (isCurrentUserField) {
+      const previewContent = renderPreview();
+      if (previewContent) return previewContent;
+    }
+
     if (field.type === 'FILE_UPLOAD' && isCurrentUserField) {
       if (attachment) {
         return (
@@ -71,6 +94,8 @@ const SigningField: React.FC<SigningFieldProps> = ({ field, recipient, isCurrent
         </>
       );
     }
+    
+    // Default placeholder
     return (
       <div className="flex items-center gap-1 pointer-events-none">
         <Icon name={getFieldIcon(field.type)} className="w-4 h-4" />

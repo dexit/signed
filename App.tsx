@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { type PDFDocumentProxy } from 'pdfjs-dist';
 
-import { type SignatureField, type Recipient, type FieldType, type Template, Requester } from './types';
+import { type SignatureField, type Recipient, type FieldType, type Template, Requester, ActivityLogEntry } from './types';
 import PdfViewer from './components/PdfViewer';
 import Toolbar from './components/Toolbar';
 import SetupPanel from './components/SetupPanel';
@@ -181,20 +181,24 @@ export default function App() {
     );
   };
 
-  const handleSaveTemplate = async () => {
-    if (!file) return;
-    if (!requester.name || !requester.email) {
-      alert("Please provide the requester's name and email.");
-      return;
-    }
-    if (recipients.length === 0) {
-      alert("Please add at least one recipient.");
-      return;
-    }
-    if (fields.length === 0) {
-      alert("Please place at least one field on the document.");
-      return;
-    }
+  const isSetupValid = () => {
+      if (!requester.name || !requester.email) {
+          alert("Please provide the requester's name and email.");
+          return false;
+      }
+      if (recipients.length === 0) {
+          alert("Please add at least one recipient.");
+          return false;
+      }
+      if (fields.length === 0) {
+          alert("Please place at least one field on the document.");
+          return false;
+      }
+      return true;
+  }
+
+  const handleSaveAndSend = async () => {
+    if (!file || !isSetupValid()) return;
 
     setIsProcessing(true);
     const fileReader = new FileReader();
@@ -202,26 +206,55 @@ export default function App() {
     fileReader.onloadend = () => {
         const base64Pdf = (fileReader.result as string).split(',')[1];
         const templateId = editingTemplate?.id || `template-${Date.now()}`;
-        
+        const isInitialCreation = !editingTemplate;
+
+        let activityLog: ActivityLogEntry[];
+        if (isInitialCreation) {
+            activityLog = [
+                { timestamp: new Date().toISOString(), message: `Document created by ${requester.name}.` },
+                { timestamp: new Date().toISOString(), message: 'Document sent for signatures.' }
+            ];
+        } else {
+            activityLog = editingTemplate.activityLog || [];
+            if (editingTemplate.status === 'Draft') {
+                activityLog.push({ timestamp: new Date().toISOString(), message: 'Document sent for signatures.' });
+            } else {
+                activityLog.push({ timestamp: new Date().toISOString(), message: 'Document updated.' });
+            }
+        }
+
         const template: Template = {
           id: templateId,
           pdf: base64Pdf,
           fileName: file.name,
           requester,
-          recipients: recipients.map(r => ({ ...r, status: editingTemplate ? r.status : 'Pending' })),
+          recipients: recipients.map(r => ({ ...r, status: r.status === 'Signed' ? 'Signed' : 'Pending' })),
           fields,
-          status: editingTemplate ? 'Draft' : 'Sent',
+          status: 'Sent',
           lastSignedPdf: editingTemplate?.lastSignedPdf,
+          isTemplate: false,
+          activityLog,
         };
         
         localStorage.setItem(templateId, JSON.stringify(template));
-        
-        if (!editingTemplate) {
-            setShowLinksModal(true);
-        } else {
-            resetToDashboard();
-        }
         setIsProcessing(false);
+
+        // --- SELF-SIGNING AND FINALIZING LOGIC ---
+        const requesterAsSigner = template.recipients.find(
+          (r) => r.email.toLowerCase() === template.requester.email.toLowerCase() && r.status === 'Pending'
+        );
+
+        if (requesterAsSigner) {
+          // If the requester is a pending signer, go directly to signing.
+          handleStartInPersonSigning(template.id, requesterAsSigner.id);
+        } else {
+          // If not self-signing, show modal for new docs, or go to dash for edits.
+          if (isInitialCreation) {
+              setShowLinksModal(true);
+          } else {
+              resetToDashboard();
+          }
+        }
     };
     fileReader.onerror = () => {
         console.error("Error reading file for template generation.");
@@ -229,6 +262,41 @@ export default function App() {
         setIsProcessing(false);
     }
   };
+  
+  const handleSaveAsTemplate = () => {
+      if (!file || !isSetupValid()) return;
+      
+      setIsProcessing(true);
+      const fileReader = new FileReader();
+      fileReader.readAsDataURL(file);
+      fileReader.onloadend = () => {
+          const base64Pdf = (fileReader.result as string).split(',')[1];
+          const templateId = `template-${Date.now()}-blueprint`;
+
+          const template: Template = {
+              id: templateId,
+              pdf: base64Pdf,
+              fileName: file.name,
+              requester: { name: '', email: '' }, // Requester info is not saved in blueprint
+              recipients: recipients.map(({ id, color }) => ({ // Save structure, not personal info
+                  id, name: '', email: '', color, status: 'Pending'
+              })),
+              fields,
+              status: 'Draft',
+              isTemplate: true,
+          };
+          
+          localStorage.setItem(templateId, JSON.stringify(template));
+          alert(`"${file.name}" has been saved as a reusable template.`);
+          setIsProcessing(false);
+          resetToDashboard();
+      };
+      fileReader.onerror = () => {
+        console.error("Error reading file for template saving.");
+        alert("Could not save the template.");
+        setIsProcessing(false);
+    }
+  }
 
   const resetToDashboard = () => {
     const url = new URL(window.location.href);
@@ -255,13 +323,35 @@ export default function App() {
           loadPdf(pdfFile, template);
       }
   };
+  
+  const handleUseTemplate = (templateId: string) => {
+      const templateString = localStorage.getItem(templateId);
+      if (templateString) {
+          const blueprint = JSON.parse(templateString) as Template;
+          // Create a new document instance from the blueprint
+          const newDocument: Template = {
+              ...blueprint,
+              id: `template-${Date.now()}`,
+              status: 'Draft',
+              isTemplate: false,
+              activityLog: [
+                  { timestamp: new Date().toISOString(), message: `Document created from template: ${blueprint.fileName}` }
+              ],
+              lastSignedPdf: undefined,
+              attachments: [],
+          };
+          setEditingTemplate(newDocument);
+          const pdfFile = base64toFile(newDocument.pdf, newDocument.fileName);
+          loadPdf(pdfFile, newDocument);
+      }
+  }
 
   const renderContent = () => {
       switch (appMode) {
           case 'SIGNING':
               return <SigningView templateId={signingInfo!.templateId} recipientId={signingInfo!.recipientId} onSigningComplete={resetToDashboard} />;
           case 'DASHBOARD':
-              return <Dashboard onStartSetup={() => setAppMode('FILE_UPLOAD')} onSignRequest={handleStartInPersonSigning} onEditTemplate={handleEditTemplate} />;
+              return <Dashboard onStartSetup={() => setAppMode('FILE_UPLOAD')} onSignRequest={handleStartInPersonSigning} onEditTemplate={handleEditTemplate} onUseTemplate={handleUseTemplate} />;
           case 'FILE_UPLOAD':
               return <FileUploader onFileChange={handleFileChange} onDrop={handleDrop} />;
           case 'TEMPLATE_SETUP':
@@ -283,9 +373,10 @@ export default function App() {
                         onPageChange={handlePageChange}
                         onNewFileClick={resetToDashboard}
                         onRotatePage={handleRotatePage}
-                        onGenerateLinksClick={handleSaveTemplate}
+                        onSaveAndSend={handleSaveAndSend}
+                        onSaveAsTemplate={handleSaveAsTemplate}
                         isSetupComplete={!!requester.name && !!requester.email && recipients.length > 0 && fields.length > 0}
-                        saveButtonText={editingTemplate ? "Save Changes" : "Generate Links"}
+                        saveButtonText={editingTemplate ? "Save Changes" : "Save & Send"}
                       />
                       <main 
                         ref={pdfViewerContainerRef}

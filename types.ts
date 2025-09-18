@@ -18,6 +18,7 @@ export interface Recipient {
   color: string;
   status: RecipientStatus;
   signedAt?: string; // ISO 8601 date string
+  signerInfo?: SignerInfo;
 }
 
 export interface Signature {
@@ -56,6 +57,11 @@ export interface Attachment {
   mimeType: string;
 }
 
+export type ActivityLogEntry = {
+  timestamp: string;
+  message: string;
+};
+
 export interface Template {
     id: string;
     pdf: string; // base64 encoded PDF data
@@ -66,9 +72,21 @@ export interface Template {
     status: TemplateStatus;
     lastSignedPdf?: string; // base64 encoded PDF, updated after each signature
     attachments?: Attachment[];
+    isTemplate?: boolean;
+    activityLog?: ActivityLogEntry[];
 }
 
 export interface SignerInfo {
     fullName: string;
     initials: string;
+    signatureDataUrl: string;
+    initialsDataUrl: string;
+}
+
+export interface PreviewInfo {
+    fullName?: string;
+    initials?: string;
+    signatureDataUrl?: string;
+    initialsDataUrl?: string;
+    date?: string;
 }

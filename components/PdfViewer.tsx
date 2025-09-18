@@ -1,6 +1,7 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
-import { type SignatureField, type FieldType, Recipient, Attachment } from '../types';
+import { type SignatureField, type Recipient, type Attachment, type PreviewInfo } from '../types';
 import EditableField from './EditableField';
 import SigningField from './SigningField';
 
@@ -16,6 +17,7 @@ interface PdfViewerProps {
   onFileUpload?: (fieldId: string, file: File) => void;
   onFileRemove?: (fieldId: string) => void;
   attachments?: Attachment[];
+  previewInfo?: PreviewInfo | null;
 }
 
 const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -30,6 +32,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   onFileUpload,
   onFileRemove,
   attachments,
+  previewInfo,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,11 +62,11 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
 
-        // FIX: Added the 'canvas' property to the render parameters. The provided TypeScript error indicates that the 'RenderParameters' object is missing this required property.
+        // FIX: Add the `canvas` property to the render parameters to satisfy the project's specific type definitions for `RenderParameters`.
         const task = pageProxy.render({
+            canvas: canvas,
             canvasContext: canvas.getContext('2d')!,
             viewport: scaledViewport,
-            canvas,
         });
         renderTaskRef.current = task;
 
@@ -127,6 +130,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
                   onFileUpload={onFileUpload!}
                   onFileRemove={onFileRemove!}
                   attachment={attachments?.find(a => a.fieldId === field.id)}
+                  previewInfo={field.recipientId === signingRecipientId ? previewInfo : null}
                 />
               );
             })

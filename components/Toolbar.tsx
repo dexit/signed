@@ -7,7 +7,8 @@ interface ToolbarProps {
   onPageChange: (page: number) => void;
   onNewFileClick: () => void;
   onRotatePage: () => void;
-  onGenerateLinksClick: () => void;
+  onSaveAndSend: () => void;
+  onSaveAsTemplate: () => void;
   isSetupComplete: boolean;
   saveButtonText?: string;
 }
@@ -35,9 +36,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onPageChange,
   onNewFileClick,
   onRotatePage,
-  onGenerateLinksClick,
+  onSaveAndSend,
+  onSaveAsTemplate,
   isSetupComplete,
-  saveButtonText = "Generate Links"
+  saveButtonText = "Save & Send"
 }) => {
   return (
     <header className="bg-slate-900 p-2 flex items-center justify-between sticky top-0 z-10 shadow-md border-b border-slate-700/50">
@@ -76,8 +78,16 @@ const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       <div className="flex items-center gap-2">
+         <ToolbarButton
+          onClick={onSaveAsTemplate}
+          disabled={!isSetupComplete}
+          className="bg-slate-700 hover:bg-slate-600"
+          title={isSetupComplete ? "Save current layout as a reusable template" : "Add recipients and place fields to enable saving"}
+        >
+          Save as Template
+        </ToolbarButton>
         <ToolbarButton
-          onClick={onGenerateLinksClick}
+          onClick={onSaveAndSend}
           disabled={!isSetupComplete}
           className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 disabled:text-slate-400"
           title={isSetupComplete ? `${saveButtonText} for recipients` : "Add recipients and place fields to enable saving"}

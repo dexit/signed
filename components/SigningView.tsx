@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { type PDFDocumentProxy } from 'pdfjs-dist';
-import { type Template, type SignerInfo, type SignaturePlacement, type Attachment } from '../types';
+import { type Template, type SignerInfo, type SignaturePlacement, type Attachment, type PreviewInfo } from '../types';
 import { LoadingSpinner } from './LoadingSpinner';
 import PdfViewer from './PdfViewer';
 import SignerInfoModal from './SignerInfoModal';
@@ -26,6 +26,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
     
     const [isSignerInfoModalOpen, setIsSignerInfoModalOpen] = useState(false);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
 
     useEffect(() => {
         const loadTemplate = async () => {
@@ -87,6 +88,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
 
     const handleSignerInfoSubmit = async (signerInfo: SignerInfo) => {
         setIsSignerInfoModalOpen(false);
+        setPreviewInfo(null);
         setIsProcessing(true);
 
         if (!template || !signerInfo || !pdfDoc) {
@@ -116,9 +118,9 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
                     type: field.type,
                 });
             }
-
+            
             const signedPdfBytes = await applyDigitalSignatures(originalPdfBuffer.buffer, placements, signerInfo);
-
+            
             const updatedTemplate = { ...template };
             let binary = '';
             for (let i = 0; i < signedPdfBytes.length; i++) {
@@ -127,14 +129,28 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
             updatedTemplate.lastSignedPdf = btoa(binary);
 
             updatedTemplate.attachments = attachments;
+            
+            const currentRecipient = updatedTemplate.recipients.find(r => r.id === recipientId);
 
             updatedTemplate.recipients = updatedTemplate.recipients.map(r => 
-                r.id === recipientId ? { ...r, status: 'Signed', signedAt: new Date().toISOString() } : r
+                r.id === recipientId ? { ...r, status: 'Signed', signedAt: new Date().toISOString(), signerInfo } : r
             );
+
+            // Add to activity log
+            updatedTemplate.activityLog = updatedTemplate.activityLog || [];
+            updatedTemplate.activityLog.push({
+                timestamp: new Date().toISOString(),
+                message: `Document signed by ${currentRecipient?.name || 'recipient'}.`
+            });
+
 
             const allSigned = updatedTemplate.recipients.every(r => r.status === 'Signed');
             if (allSigned) {
                 updatedTemplate.status = 'Completed';
+                updatedTemplate.activityLog.push({
+                    timestamp: new Date().toISOString(),
+                    message: `Document fully signed and completed.`
+                });
             }
 
             localStorage.setItem(templateId, JSON.stringify(updatedTemplate));
@@ -173,7 +189,17 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
 
     return (
         <div className="flex flex-col h-screen overflow-hidden">
-            {isSignerInfoModalOpen && <SignerInfoModal onSubmit={handleSignerInfoSubmit} onClose={() => setIsSignerInfoModalOpen(false)} />}
+            {isSignerInfoModalOpen && (
+                <SignerInfoModal 
+                    onSubmit={handleSignerInfoSubmit} 
+                    onClose={() => {
+                        setIsSignerInfoModalOpen(false);
+                        setPreviewInfo(null);
+                    }}
+                    onInfoChange={setPreviewInfo}
+                    recipientName={recipientName}
+                />
+            )}
             <header className="bg-slate-900 p-3 flex items-center justify-between shadow-md border-b border-slate-700/50">
                 <div>
                     <h1 className="text-xl font-bold">{template.fileName}</h1>
@@ -199,6 +225,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
                     onFileUpload={handleFileUpload}
                     onFileRemove={handleFileRemove}
                     attachments={attachments}
+                    previewInfo={previewInfo}
                 />
             </main>
              <footer className="bg-slate-900 p-2 flex items-center justify-center border-t border-slate-700/50">
