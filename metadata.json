@@ -1,0 +1,5 @@
+{
+  "name": "React PDF Signature Tool",
+  "description": "An advanced PDF viewer built with React and a custom PDF.js integration, allowing users to upload, view, and sign PDF documents. Features include drawing, typing, or uploading signatures, placing them anywhere on the document, and downloading the signed PDF.",
+  "requestFramePermissions": []
+}
