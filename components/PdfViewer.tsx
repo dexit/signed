@@ -59,10 +59,11 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
 
-        // FIX: The provided TypeScript error indicates that the 'RenderParameters' object is missing a required 'canvas' property. This is likely due to a specific project configuration or pdf.js version.
+        // FIX: Added the 'canvas' property to the render parameters. The provided TypeScript error indicates that the 'RenderParameters' object is missing this required property.
         const task = pageProxy.render({
             canvasContext: canvas.getContext('2d')!,
             viewport: scaledViewport,
+            canvas,
         });
         renderTaskRef.current = task;
 

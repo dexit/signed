@@ -1,10 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import * as forgeImport from 'node-forge';
+import * as forge from 'node-forge';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { type SignaturePlacement, type SignerInfo } from '../types';
-
-// Compatibility for UMD module loaded via importmap
-const forge: any = (forgeImport as any).default || forgeImport;
 
 const generateSelfSignedCertificate = (signerName: string) => {
     const keys = forge.pki.rsa.generateKeyPair(2048);
@@ -106,7 +103,8 @@ export const applyDigitalSignatures = async (
             height: placement.height,
             borderColor: rgb(0.2, 0.2, 0.2),
             borderWidth: 0.5,
-            backgroundColor: rgb(0.95, 0.95, 0.95),
+            // FIX: 'backgroundColor' is not a valid property for PDFPageDrawRectangleOptions. It has been changed to 'color' which is the correct property for setting the fill color.
+            color: rgb(0.95, 0.95, 0.95),
         });
 
         switch (placement.type) {
