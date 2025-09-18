@@ -1,57 +1,91 @@
 import { v4 as uuidv4 } from 'uuid';
-import * as forge from 'node-forge';
+import * as forgeImport from 'node-forge';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { type SignaturePlacement, type SignerInfo } from '../types';
 
-declare const window: {
-    pdfLib: any;
+// Compatibility for UMD module loaded via importmap
+const forge: any = (forgeImport as any).default || forgeImport;
+
+const generateSelfSignedCertificate = (signerName: string) => {
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(19)); // 20 bytes
+    cert.validity.notBefore = new Date();
+    cert.validity.notAfter = new Date();
+    cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
+
+    const attrs = [{
+        name: 'commonName',
+        value: signerName
+    }, {
+        name: 'countryName',
+        value: 'US'
+    }, {
+        shortName: 'ST',
+        value: 'California'
+    }, {
+        name: 'localityName',
+        value: 'San Francisco'
+    }, {
+        name: 'organizationName',
+        value: 'Self-Signed'
+    }, {
+        shortName: 'OU',
+        value: 'Document Signing'
+    }];
+    cert.setSubject(attrs);
+    cert.setIssuer(attrs);
+
+    cert.setExtensions([{
+        name: 'basicConstraints',
+        cA: true
+    }, {
+        name: 'keyUsage',
+        keyCertSign: true,
+        digitalSignature: true,
+        nonRepudiation: true,
+        keyEncipherment: true,
+        dataEncipherment: true
+    }, {
+        name: 'extKeyUsage',
+        serverAuth: true,
+        clientAuth: true,
+        codeSigning: true,
+        emailProtection: true,
+        timeStamping: true
+    }, {
+        name: 'nsCertType',
+        client: true,
+        server: true,
+        email: true,
+        objsign: true,
+        sslCA: true,
+        emailCA: true,
+        objCA: true
+    }, {
+        name: 'subjectKeyIdentifier'
+    }]);
+
+    // self-sign certificate
+    cert.sign(keys.privateKey, forge.md.sha256.create());
+
+    return {
+        cert,
+        keys
+    };
 };
 
-const arrayBufferToForgeBuffer = (ab: ArrayBuffer): forge.util.ByteStringBuffer => {
-    const bytes = new Uint8Array(ab);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return forge.util.createBuffer(binary, 'raw');
-};
-
-const getCertInfo = (p12Buffer: ArrayBuffer, password: string): { subjectName: string } => {
-    try {
-        const p12Asn1 = forge.asn1.fromDer(arrayBufferToForgeBuffer(p12Buffer));
-        const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
-        const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-        const certBag = certBags[forge.pki.oids.certBag];
-        
-        if (!certBag || certBag.length === 0) {
-            throw new Error("No certificate bags found in P12 file.");
-        }
-        
-        const cert = certBag[0].cert;
-        if (!cert) {
-            throw new Error("Certificate not found in P12 file.");
-        }
-        
-        const subject = cert.subject.attributes.map(attr => `${attr.shortName}=${attr.value}`).join(', ');
-        return { subjectName: subject };
-    } catch(e: any) {
-        console.error("P12 parsing error:", e);
-        if (e.message.includes("Invalid password") || e.message.includes("mac check")) {
-            throw new Error("Invalid password for the P12 file.");
-        }
-        throw new Error("Failed to parse P12 file. Please check if the file is valid and the password is correct.");
-    }
-}
 
 export const applyDigitalSignatures = async (
     pdfBuffer: ArrayBuffer,
-    p12Buffer: ArrayBuffer,
-    p12Password: string,
     placements: SignaturePlacement[],
     signerInfo: SignerInfo
 ): Promise<Uint8Array> => {
-    const { PDFDocument, rgb, StandardFonts } = window.pdfLib;
+    // Generate certificate on the fly
+    const { cert } = generateSelfSignedCertificate(signerInfo.fullName);
+    const subjectName = cert.subject.attributes.map(attr => `${attr.shortName}=${attr.value}`).join(', ');
 
-    const certInfo = getCertInfo(p12Buffer, p12Password);
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -81,7 +115,7 @@ export const applyDigitalSignatures = async (
                 const signatureTextWidth = fontBold.widthOfTextAtSize(signatureText, 14);
                 
                 const details = [
-                    `Digitally Signed by: ${certInfo.subjectName}`,
+                    `Digitally Signed by: ${subjectName}`,
                     `Date: ${currentDate}`,
                     `Reason: I am approving this document`,
                     `UUID: ${uuidv4()}`

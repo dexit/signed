@@ -11,7 +11,7 @@ const LinksModal: React.FC<LinksModalProps> = ({ onClose }) => {
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[100]">
       <div className="bg-slate-800 rounded-lg shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <header className="flex items-center justify-between p-4 border-b border-slate-700">
-          <h2 className="text-xl font-bold">Success!</h2>
+          <h2 className="text-xl font-bold">Document is Ready for Signing</h2>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-700">
             <Icon name="close" className="w-6 h-6" />
           </button>
@@ -23,7 +23,7 @@ const LinksModal: React.FC<LinksModalProps> = ({ onClose }) => {
                 </svg>
             </div>
             <p className="text-slate-300 text-center mb-6">
-                The document has been saved and is ready for signing. In a real application, unique signing links would now be emailed to each recipient.
+                The document has been saved and is now out for signature. You can track its status on the dashboard. In a real application, signing links would be emailed to each recipient.
             </p>
         </div>
         <footer className="p-4 mt-auto border-t border-slate-700 text-right">

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Icon } from './Icon';
 
@@ -10,6 +9,7 @@ interface ToolbarProps {
   onRotatePage: () => void;
   onGenerateLinksClick: () => void;
   isSetupComplete: boolean;
+  saveButtonText?: string;
 }
 
 const ToolbarButton: React.FC<{
@@ -36,7 +36,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onNewFileClick,
   onRotatePage,
   onGenerateLinksClick,
-  isSetupComplete
+  isSetupComplete,
+  saveButtonText = "Generate Links"
 }) => {
   return (
     <header className="bg-slate-900 p-2 flex items-center justify-between sticky top-0 z-10 shadow-md border-b border-slate-700/50">
@@ -79,10 +80,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onGenerateLinksClick}
           disabled={!isSetupComplete}
           className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 disabled:text-slate-400"
-          title={isSetupComplete ? "Generate unique signing links for recipients" : "Add recipients and place fields to enable link generation"}
+          title={isSetupComplete ? `${saveButtonText} for recipients` : "Add recipients and place fields to enable saving"}
         >
           <Icon name="link" className="w-5 h-5" />
-          Generate Links
+          {saveButtonText}
         </ToolbarButton>
       </div>
     </header>

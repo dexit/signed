@@ -1,29 +1,18 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
 import { type SignatureField, type FieldType, Recipient } from '../types';
-import { Icon } from './Icon';
+import EditableField from './EditableField';
 
 interface PdfViewerProps {
   pdfDoc: PDFDocumentProxy;
   pageNumber: number;
   fields: SignatureField[];
   recipients: Recipient[];
-  // FIX: Make props for field editing optional for use in read-only scenarios like signing.
+  pageRotations: { [key: number]: number };
   selectedFieldType?: FieldType | null;
   onPlaceField?: (x: number, y: number, width: number, height: number) => void;
   onRemoveField?: (id: string) => void;
-  pageRotations: { [key: number]: number };
-}
-
-const getFieldIcon = (type: FieldType) => {
-    switch (type) {
-        case 'SIGNATURE': return 'sign';
-        case 'INITIALS': return 'initials';
-        case 'FULL_NAME': return 'user';
-        case 'DATE': return 'calendar';
-        default: return '';
-    }
+  onUpdateField?: (id: string, newPosition: Partial<SignatureField>) => void;
 }
 
 const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -34,6 +23,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   selectedFieldType,
   onPlaceField,
   onRemoveField,
+  onUpdateField,
   pageRotations
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,12 +54,13 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
 
-        const renderContext = {
-            canvas,
+        // FIX: The compiler error indicates that the RenderParameters type for this project's environment requires a 'canvas' property.
+        // This is non-standard for pdfjs-dist, but is necessary to satisfy the type checker in this specific environment.
+        const task = pageProxy.render({
+            canvasContext: canvas.getContext('2d')!,
             viewport: scaledViewport,
-        };
-        
-        const task = pageProxy.render(renderContext);
+            canvas: canvas,
+        });
         renderTaskRef.current = task;
 
         try {
@@ -111,14 +102,12 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [pdfDoc, pageNumber, pageRotations]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // FIX: Ensure onPlaceField is provided before attempting to place a field.
     if (!selectedFieldType || !onPlaceField) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Define field dimensions as percentage of page width
     const fieldWidth = selectedFieldType === 'SIGNATURE' ? 0.20 : 0.15; 
     const fieldHeight = 0.05;
 
@@ -142,41 +131,16 @@ const PdfViewer: React.FC<PdfViewerProps> = ({
       >
         <canvas ref={canvasRef} />
         <div className="absolute inset-0">
-          {fields.map((field) => {
-            const recipient = recipientMap.get(field.recipientId);
-            const color = recipient?.color || '#888';
-            return (
-              <div
-                key={field.id}
-                className="absolute group flex items-center justify-center text-white text-xs font-bold rounded-sm"
-                style={{
-                  left: `${field.x * 100}%`,
-                  top: `${field.y * 100}%`,
-                  width: `${field.width * 100}%`,
-                  height: `${field.height * 100}%`,
-                  backgroundColor: `${color}4D`, // semi-transparent background
-                  border: `2px dashed ${color}`,
-                  boxSizing: 'border-box',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center gap-1 pointer-events-none">
-                    <Icon name={getFieldIcon(field.type)} className="w-3 h-3"/>
-                    <span>{field.type.replace('_', ' ')}</span>
-                </div>
-                {/* FIX: Conditionally render the remove button only if onRemoveField is provided. */}
-                {onRemoveField && (
-                  <button
-                    onClick={() => onRemoveField(field.id)}
-                    className="absolute -top-2.5 -right-2.5 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    aria-label="Remove field"
-                  >
-                    <Icon name="close" className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            )
-          })}
+          {fields.map((field) => (
+            <EditableField
+              key={field.id}
+              field={field}
+              recipient={recipientMap.get(field.recipientId)}
+              pageDimensions={pageDimensions}
+              onUpdate={onUpdateField}
+              onRemove={onRemoveField}
+            />
+          ))}
           {selectedFieldType && <p className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg pointer-events-none">Click to place field. Press ESC to cancel.</p>}
         </div>
       </div>

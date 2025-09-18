@@ -16,6 +16,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 
 type AppMode = 'DASHBOARD' | 'FILE_UPLOAD' | 'TEMPLATE_SETUP' | 'SIGNING';
 
+const base64toFile = (base64: string, fileName: string): File => {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], {type: 'application/pdf'});
+  return new File([blob], fileName, {type: 'application/pdf'});
+}
+
+
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>('DASHBOARD');
   const [file, setFile] = useState<File | null>(null);
@@ -31,10 +43,11 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [pageRotations, setPageRotations] = useState<{ [key: number]: number }>({});
   const [showLinksModal, setShowLinksModal] = useState<boolean>(false);
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+
 
   // --- Signing Mode State ---
-  const [signingTemplateId, setSigningTemplateId] = useState<string | null>(null);
-  const [signingRecipientId, setSigningRecipientId] = useState<string | null>(null);
+  const [signingInfo, setSigningInfo] = useState<{templateId: string, recipientId: string} | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -42,8 +55,7 @@ export default function App() {
     const recipientId = params.get('recipientId');
 
     if (templateId && recipientId) {
-      setSigningTemplateId(templateId);
-      setSigningRecipientId(recipientId);
+      setSigningInfo({ templateId, recipientId });
       setAppMode('SIGNING');
     } else {
       setAppMode('DASHBOARD');
@@ -51,7 +63,7 @@ export default function App() {
   }, []);
 
 
-  const loadPdf = useCallback(async (selectedFile: File) => {
+  const loadPdf = useCallback(async (selectedFile: File, templateData: Partial<Template> | null = null) => {
     setFile(selectedFile);
     setIsProcessing(true);
     const fileReader = new FileReader();
@@ -63,10 +75,10 @@ export default function App() {
           setPdfDoc(doc);
           setTotalPages(doc.numPages);
           setCurrentPage(1);
-          setFields([]);
+          setFields(templateData?.fields || []);
           setPageRotations({});
-          setRecipients([]);
-          setSelectedRecipientId(null);
+          setRecipients(templateData?.recipients || []);
+          setSelectedRecipientId(templateData?.recipients?.[0]?.id || null);
           setSelectedFieldType(null);
           setAppMode('TEMPLATE_SETUP');
         } catch (error) {
@@ -84,7 +96,8 @@ export default function App() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      loadPdf(e.target.files[0]);
+        setEditingTemplate(null);
+        loadPdf(e.target.files[0]);
     }
   };
 
@@ -93,6 +106,7 @@ export default function App() {
     e.stopPropagation();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       if (e.dataTransfer.files[0].type === "application/pdf") {
+        setEditingTemplate(null);
         loadPdf(e.dataTransfer.files[0]);
       } else {
         alert("Please drop a PDF file.");
@@ -129,11 +143,15 @@ export default function App() {
     }
   };
   
+  const handleUpdateField = (id: string, newPosition: Partial<SignatureField>) => {
+    setFields(prevFields => prevFields.map(f => f.id === id ? { ...f, ...newPosition } : f));
+  };
+  
   const handleRemoveField = (idToRemove: string) => {
       setFields(prev => prev.filter(p => p.id !== idToRemove));
   };
 
-  const handleGenerateLinks = async () => {
+  const handleSaveTemplate = async () => {
     if (!file) return;
     if (recipients.length === 0) {
       alert("Please add at least one recipient.");
@@ -149,19 +167,25 @@ export default function App() {
     fileReader.readAsDataURL(file);
     fileReader.onloadend = () => {
         const base64Pdf = (fileReader.result as string).split(',')[1];
-        const templateId = `template-${Date.now()}`;
+        const templateId = editingTemplate?.id || `template-${Date.now()}`;
         
         const template: Template = {
           id: templateId,
           pdf: base64Pdf,
           fileName: file.name,
-          recipients,
+          recipients: recipients.map(r => ({ ...r, status: editingTemplate ? r.status : 'Pending' })),
           fields,
+          status: editingTemplate ? 'Draft' : 'Sent',
+          lastSignedPdf: editingTemplate?.lastSignedPdf,
         };
         
         localStorage.setItem(templateId, JSON.stringify(template));
         
-        setShowLinksModal(true);
+        if (!editingTemplate) {
+            setShowLinksModal(true);
+        } else {
+            resetToDashboard();
+        }
         setIsProcessing(false);
     };
     fileReader.onerror = () => {
@@ -188,14 +212,31 @@ export default function App() {
     setAppMode('DASHBOARD');
     setFile(null);
     setPdfDoc(null);
+    setSigningInfo(null);
+    setEditingTemplate(null);
+  };
+
+  const handleStartInPersonSigning = (templateId: string, recipientId: string) => {
+    setSigningInfo({ templateId, recipientId });
+    setAppMode('SIGNING');
+  }
+  
+  const handleEditTemplate = (templateId: string) => {
+      const templateString = localStorage.getItem(templateId);
+      if (templateString) {
+          const template = JSON.parse(templateString) as Template;
+          setEditingTemplate(template);
+          const pdfFile = base64toFile(template.pdf, template.fileName);
+          loadPdf(pdfFile, template);
+      }
   };
 
   const renderContent = () => {
       switch (appMode) {
           case 'SIGNING':
-              return <SigningView templateId={signingTemplateId!} recipientId={signingRecipientId!} />;
+              return <SigningView templateId={signingInfo!.templateId} recipientId={signingInfo!.recipientId} onSigningComplete={resetToDashboard} />;
           case 'DASHBOARD':
-              return <Dashboard onStartSetup={() => setAppMode('FILE_UPLOAD')} />;
+              return <Dashboard onStartSetup={() => setAppMode('FILE_UPLOAD')} onSignRequest={handleStartInPersonSigning} onEditTemplate={handleEditTemplate} />;
           case 'FILE_UPLOAD':
               return <FileUploader onFileChange={handleFileChange} onDrop={handleDrop} />;
           case 'TEMPLATE_SETUP':
@@ -217,8 +258,9 @@ export default function App() {
                         onPageChange={handlePageChange}
                         onNewFileClick={resetToDashboard}
                         onRotatePage={handleRotatePage}
-                        onGenerateLinksClick={handleGenerateLinks}
+                        onGenerateLinksClick={handleSaveTemplate}
                         isSetupComplete={recipients.length > 0 && fields.length > 0}
+                        saveButtonText={editingTemplate ? "Save Changes" : "Generate Links"}
                       />
                       <main className="flex-grow flex items-start justify-center p-4 overflow-auto bg-slate-800/50">
                         <PdfViewer
@@ -230,6 +272,7 @@ export default function App() {
                           selectedFieldType={selectedFieldType}
                           onPlaceField={handlePlaceField}
                           onRemoveField={handleRemoveField}
+                          onUpdateField={handleUpdateField}
                         />
                       </main>
                     </div>

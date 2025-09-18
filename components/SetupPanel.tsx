@@ -69,6 +69,7 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
             name: newRecipientName.trim(),
             email: newRecipientEmail.trim(),
             color: getRandomColor(recipients.map(r => r.color)),
+            status: 'Pending',
         };
         setRecipients(prev => [...prev, newRecipient]);
         setNewRecipientName('');

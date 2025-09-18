@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Signature, SignatureTab, Recipient } from '../types';
 import { Icon } from './Icon';
@@ -73,6 +74,8 @@ const SignaturePanel: React.FC<SignaturePanelProps> = ({ isOpen, onClose, signat
           // FIX: Add missing 'email' property to conform to Recipient type
           email: newRecipientEmail.trim(),
           color: getRandomColor(recipients.map(r => r.color)),
+          // FIX: Add missing 'status' property to conform to Recipient type.
+          status: 'Pending',
       };
       setRecipients(prev => [...prev, newRecipient]);
       setSelectedRecipientId(newRecipient.id);

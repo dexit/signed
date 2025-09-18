@@ -2,11 +2,16 @@ export type SignatureTab = 'draw' | 'type' | 'upload';
 
 export type FieldType = 'SIGNATURE' | 'INITIALS' | 'FULL_NAME' | 'DATE';
 
+export type RecipientStatus = 'Pending' | 'Signed';
+export type TemplateStatus = 'Draft' | 'Sent' | 'Completed' | 'Approved' | 'Rejected';
+
 export interface Recipient {
   id: string;
   name: string;
   email: string;
   color: string;
+  status: RecipientStatus;
+  signedAt?: string; // ISO 8601 date string
 }
 
 export interface Signature {
@@ -42,6 +47,8 @@ export interface Template {
     fileName: string;
     recipients: Recipient[];
     fields: SignatureField[];
+    status: TemplateStatus;
+    lastSignedPdf?: string; // base64 encoded PDF, updated after each signature
 }
 
 export interface SignerInfo {
