@@ -183,7 +183,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onStartSetup, onSignRequest, onEd
                                             >
                                                 <StatusBadge status={template.status} />
                                                 <div>
-                                                    <p className="font-semibold text-white">{template.fileName}</p>
+                                                    <p className="font-semibold text-white flex items-center gap-2">
+                                                        {template.fileName}
+                                                        {/* FIX: Wrapped Icon in a span to correctly apply the title attribute for tooltips. The 'title' attribute is not valid for SVG elements, but it is for span elements. */}
+                                                        {template.attachments && template.attachments.length > 0 && 
+                                                            <span title={`${template.attachments.length} attachment(s)`}><Icon name="paperclip" className="w-4 h-4 text-slate-400" /></span>}
+                                                    </p>
                                                     <p className="text-sm text-slate-400">
                                                         {template.recipients.length} recipient(s) - Created {new Date(parseInt(template.id.split('-')[1])).toLocaleDateString()}
                                                     </p>

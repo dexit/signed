@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Recipient, FieldType, SignatureField } from '../types';
+import { Recipient, FieldType, SignatureField, Requester } from '../types';
 import { Icon } from './Icon';
 
 interface SetupPanelProps {
+  requester: Requester;
+  setRequester: React.Dispatch<React.SetStateAction<Requester>>;
   recipients: Recipient[];
   setRecipients: React.Dispatch<React.SetStateAction<Recipient[]>>;
   selectedRecipientId: string | null;
   setSelectedRecipientId: (id: string | null) => void;
-  selectedFieldType: FieldType | null;
-  setSelectedFieldType: (type: FieldType | null) => void;
   fields: SignatureField[];
 }
 
@@ -24,17 +24,21 @@ const FieldButton: React.FC<{
     type: FieldType;
     icon: string;
     label: string;
-    isSelected: boolean;
-    onClick: () => void;
     disabled?: boolean;
-}> = ({ type, icon, label, isSelected, onClick, disabled = false }) => (
+}> = ({ type, icon, label, disabled = false }) => (
     <button
-        onClick={onClick}
         disabled={disabled}
-        className={`w-full flex items-center gap-3 p-3 rounded-md text-left transition-colors ${
-            isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-700 hover:bg-slate-600'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        title={disabled ? `Only one ${label} field is allowed per recipient.` : `Select to place a ${label} field.`}
+        draggable={!disabled}
+        onDragStart={(e) => {
+            if (!disabled) {
+                e.dataTransfer.setData('field-type', type);
+                e.dataTransfer.effectAllowed = 'copy';
+            }
+        }}
+        className={`w-full flex items-center gap-3 p-3 rounded-md text-left transition-colors bg-slate-700 hover:bg-slate-600 ${
+            disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-grab'
+        }`}
+        title={disabled ? `Only one ${label} field is allowed per recipient.` : `Drag to place a ${label} field.`}
     >
         <Icon name={icon} className="w-5 h-5" />
         <span className="font-semibold">{label}</span>
@@ -43,16 +47,17 @@ const FieldButton: React.FC<{
 
 
 const SetupPanel: React.FC<SetupPanelProps> = ({
+    requester,
+    setRequester,
     recipients,
     setRecipients,
     selectedRecipientId,
     setSelectedRecipientId,
-    selectedFieldType,
-    setSelectedFieldType,
     fields,
 }) => {
     const [newRecipientName, setNewRecipientName] = useState('');
     const [newRecipientEmail, setNewRecipientEmail] = useState('');
+    const [newRecipientPhone, setNewRecipientPhone] = useState('');
 
     useEffect(() => {
         if (!selectedRecipientId && recipients.length > 0) {
@@ -68,12 +73,14 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
             id: Date.now().toString(),
             name: newRecipientName.trim(),
             email: newRecipientEmail.trim(),
+            phone: newRecipientPhone.trim() || undefined,
             color: getRandomColor(recipients.map(r => r.color)),
             status: 'Pending',
         };
         setRecipients(prev => [...prev, newRecipient]);
         setNewRecipientName('');
         setNewRecipientEmail('');
+        setNewRecipientPhone('');
     };
     
     const handleRemoveRecipient = (id: string) => {
@@ -83,10 +90,6 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
         }
     }
     
-    const handleFieldSelect = (type: FieldType) => {
-        setSelectedFieldType(selectedFieldType === type ? null : type);
-    }
-
     const existingFieldsForRecipient = fields.filter(f => f.recipientId === selectedRecipientId);
     const hasSignatureField = existingFieldsForRecipient.some(f => f.type === 'SIGNATURE');
     const hasInitialsField = existingFieldsForRecipient.some(f => f.type === 'INITIALS');
@@ -95,7 +98,27 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
     return (
         <aside className="w-80 bg-slate-900 flex flex-col p-4 border-r border-slate-700/50 h-full overflow-y-auto">
             <div className="mb-6">
-                <h2 className="text-lg font-bold text-white mb-3">Recipients</h2>
+                <h2 className="text-lg font-bold text-white mb-3">Requester</h2>
+                <div className="bg-slate-800 p-3 rounded-lg space-y-2">
+                    <input
+                        type="text"
+                        value={requester.name}
+                        onChange={e => setRequester(r => ({ ...r, name: e.target.value }))}
+                        placeholder="Your Name"
+                        className="w-full bg-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                     <input
+                        type="email"
+                        value={requester.email}
+                        onChange={e => setRequester(r => ({ ...r, email: e.target.value }))}
+                        placeholder="Your Email"
+                        className="w-full bg-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                </div>
+            </div>
+
+             <div className="border-t border-slate-700 pt-6 mb-6">
+                <h2 className="text-lg font-bold text-white mb-3">Signees</h2>
                 <div className="space-y-2 mb-4">
                     {recipients.map(r => (
                         <div
@@ -108,6 +131,7 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
                                 <div className="text-sm">
                                     <p className="font-semibold">{r.name}</p>
                                     <p className="text-xs text-slate-400">{r.email}</p>
+                                    {r.phone && <p className="text-xs text-slate-400">{r.phone}</p>}
                                 </div>
                             </div>
                              <button onClick={(e) => { e.stopPropagation(); handleRemoveRecipient(r.id); }} className="p-1 rounded-full text-slate-500 hover:text-white hover:bg-slate-600">
@@ -121,18 +145,25 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
                         type="text"
                         value={newRecipientName}
                         onChange={e => setNewRecipientName(e.target.value)}
-                        placeholder="Recipient Name"
+                        placeholder="Signee Name"
                         className="w-full bg-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                      <input
                         type="email"
                         value={newRecipientEmail}
                         onChange={e => setNewRecipientEmail(e.target.value)}
-                        placeholder="Recipient Email"
+                        placeholder="Signee Email"
+                        className="w-full bg-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                     <input
+                        type="tel"
+                        value={newRecipientPhone}
+                        onChange={e => setNewRecipientPhone(e.target.value)}
+                        placeholder="Phone (Optional)"
                         className="w-full bg-slate-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                     <button type="submit" className="w-full px-4 py-2 text-sm font-semibold bg-indigo-600 rounded-md hover:bg-indigo-500 disabled:opacity-50" disabled={!newRecipientName || !newRecipientEmail}>
-                        Add Recipient
+                        Add Signee
                     </button>
                 </form>
             </div>
@@ -140,12 +171,13 @@ const SetupPanel: React.FC<SetupPanelProps> = ({
             <div className="border-t border-slate-700 pt-6">
                 <h2 className="text-lg font-bold text-white mb-3">Fields</h2>
                 <div className={`space-y-2 ${!selectedRecipientId ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <FieldButton type="SIGNATURE" icon="sign" label="Signature" isSelected={selectedFieldType === 'SIGNATURE'} onClick={() => handleFieldSelect('SIGNATURE')} disabled={hasSignatureField}/>
-                    <FieldButton type="INITIALS" icon="initials" label="Initials" isSelected={selectedFieldType === 'INITIALS'} onClick={() => handleFieldSelect('INITIALS')} disabled={hasInitialsField} />
-                    <FieldButton type="FULL_NAME" icon="user" label="Full Name" isSelected={selectedFieldType === 'FULL_NAME'} onClick={() => handleFieldSelect('FULL_NAME')} disabled={hasFullNameField} />
-                    <FieldButton type="DATE" icon="calendar" label="Date" isSelected={selectedFieldType === 'DATE'} onClick={() => handleFieldSelect('DATE')} />
+                    <FieldButton type="SIGNATURE" icon="sign" label="Signature" disabled={hasSignatureField}/>
+                    <FieldButton type="INITIALS" icon="initials" label="Initials" disabled={hasInitialsField} />
+                    <FieldButton type="FULL_NAME" icon="user" label="Full Name" disabled={hasFullNameField} />
+                    <FieldButton type="DATE" icon="calendar" label="Date" />
+                    <FieldButton type="FILE_UPLOAD" icon="paperclip" label="File Upload" />
                 </div>
-                 {!selectedRecipientId && <p className="text-xs text-amber-400 mt-2">Please add and select a recipient to place fields.</p>}
+                 {!selectedRecipientId && <p className="text-xs text-amber-400 mt-2">Please add and select a signee to place fields.</p>}
             </div>
         </aside>
     );

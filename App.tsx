@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { type PDFDocumentProxy } from 'pdfjs-dist';
 
-import { type SignatureField, type Recipient, type FieldType, type Template } from './types';
+import { type SignatureField, type Recipient, type FieldType, type Template, Requester } from './types';
 import PdfViewer from './components/PdfViewer';
 import Toolbar from './components/Toolbar';
 import SetupPanel from './components/SetupPanel';
@@ -35,10 +35,10 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);
   
+  const [requester, setRequester] = useState<Requester>({ name: '', email: '' });
   const [fields, setFields] = useState<SignatureField[]>([]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
-  const [selectedFieldType, setSelectedFieldType] = useState<FieldType | null>(null);
   
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [pageRotations, setPageRotations] = useState<{ [key: number]: number }>({});
@@ -77,9 +77,9 @@ export default function App() {
           setCurrentPage(1);
           setFields(templateData?.fields || []);
           setPageRotations({});
+          setRequester(templateData?.requester || { name: '', email: '' });
           setRecipients(templateData?.recipients || []);
           setSelectedRecipientId(templateData?.recipients?.[0]?.id || null);
-          setSelectedFieldType(null);
           setAppMode('TEMPLATE_SETUP');
         } catch (error) {
           console.error("Error loading PDF:", error);
@@ -128,18 +128,18 @@ export default function App() {
     });
   };
 
-  const handlePlaceField = (x: number, y: number, width: number, height: number) => {
-    if (selectedFieldType && selectedRecipientId) {
+  const handlePlaceField = (x: number, y: number, width: number, height: number, type: FieldType) => {
+    if (type && selectedRecipientId) {
       const newField: SignatureField = {
         id: `${Date.now()}-${Math.random()}`,
         recipientId: selectedRecipientId,
         page: currentPage,
-        type: selectedFieldType,
+        type: type,
         x, y, width, height,
       };
       setFields(prev => [...prev, newField]);
     } else {
-      alert("Please select a recipient and a field type from the left panel.");
+      alert("Please select a recipient before placing a field.");
     }
   };
   
@@ -151,8 +151,42 @@ export default function App() {
       setFields(prev => prev.filter(p => p.id !== idToRemove));
   };
 
+  const pdfViewerContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleDropField = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    const fieldType = e.dataTransfer.getData('field-type') as FieldType;
+    if (!fieldType || !selectedRecipientId || !pdfViewerContainerRef.current) return;
+
+    const canvas = pdfViewerContainerRef.current.querySelector('canvas');
+    if (!canvas) return;
+
+    const canvasRect = canvas.getBoundingClientRect();
+    if (e.clientX < canvasRect.left || e.clientX > canvasRect.right || e.clientY < canvasRect.top || e.clientY > canvasRect.bottom) {
+        return; // Dropped outside canvas
+    }
+
+    const x = e.clientX - canvasRect.left;
+    const y = e.clientY - canvasRect.top;
+
+    const fieldWidth = fieldType === 'SIGNATURE' ? 0.20 : 0.15;
+    const fieldHeight = 0.05;
+
+    handlePlaceField(
+      (x / canvasRect.width) - (fieldWidth / 2),
+      (y / canvasRect.height) - (fieldHeight / 2),
+      fieldWidth,
+      fieldHeight,
+      fieldType
+    );
+  };
+
   const handleSaveTemplate = async () => {
     if (!file) return;
+    if (!requester.name || !requester.email) {
+      alert("Please provide the requester's name and email.");
+      return;
+    }
     if (recipients.length === 0) {
       alert("Please add at least one recipient.");
       return;
@@ -173,6 +207,7 @@ export default function App() {
           id: templateId,
           pdf: base64Pdf,
           fileName: file.name,
+          requester,
           recipients: recipients.map(r => ({ ...r, status: editingTemplate ? r.status : 'Pending' })),
           fields,
           status: editingTemplate ? 'Draft' : 'Sent',
@@ -194,16 +229,6 @@ export default function App() {
         setIsProcessing(false);
     }
   };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelectedFieldType(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   const resetToDashboard = () => {
     const url = new URL(window.location.href);
@@ -243,12 +268,12 @@ export default function App() {
               return (
                 <div className="flex h-screen overflow-hidden">
                     <SetupPanel
+                        requester={requester}
+                        setRequester={setRequester}
                         recipients={recipients}
                         setRecipients={setRecipients}
                         selectedRecipientId={selectedRecipientId}
                         setSelectedRecipientId={setSelectedRecipientId}
-                        selectedFieldType={selectedFieldType}
-                        setSelectedFieldType={setSelectedFieldType}
                         fields={fields}
                     />
                     <div className="flex-grow flex flex-col">
@@ -259,18 +284,24 @@ export default function App() {
                         onNewFileClick={resetToDashboard}
                         onRotatePage={handleRotatePage}
                         onGenerateLinksClick={handleSaveTemplate}
-                        isSetupComplete={recipients.length > 0 && fields.length > 0}
+                        isSetupComplete={!!requester.name && !!requester.email && recipients.length > 0 && fields.length > 0}
                         saveButtonText={editingTemplate ? "Save Changes" : "Generate Links"}
                       />
-                      <main className="flex-grow flex items-start justify-center p-4 overflow-auto bg-slate-800/50">
+                      <main 
+                        ref={pdfViewerContainerRef}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'copy';
+                        }}
+                        onDrop={handleDropField}
+                        className="flex-grow flex items-start justify-center p-4 overflow-auto bg-slate-800/50"
+                      >
                         <PdfViewer
                           pdfDoc={pdfDoc!}
                           pageNumber={currentPage}
                           pageRotations={pageRotations}
                           fields={fields.filter(f => f.page === currentPage)}
                           recipients={recipients}
-                          selectedFieldType={selectedFieldType}
-                          onPlaceField={handlePlaceField}
                           onRemoveField={handleRemoveField}
                           onUpdateField={handleUpdateField}
                         />

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { type PDFDocumentProxy } from 'pdfjs-dist';
-import { type Template, type SignerInfo, type SignaturePlacement } from '../types';
+import { type Template, type SignerInfo, type SignaturePlacement, type Attachment } from '../types';
 import { LoadingSpinner } from './LoadingSpinner';
 import PdfViewer from './PdfViewer';
 import SignerInfoModal from './SignerInfoModal';
@@ -25,6 +25,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
     const [viewMode, setViewMode] = useState<'SIGNING' | 'SUCCESS'>('SIGNING');
     
     const [isSignerInfoModalOpen, setIsSignerInfoModalOpen] = useState(false);
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
 
     useEffect(() => {
         const loadTemplate = async () => {
@@ -44,6 +45,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
                     throw new Error("You have already signed this document.");
                 }
                 setTemplate(parsedTemplate);
+                setAttachments(parsedTemplate.attachments || []);
                 setRecipientName(currentRecipient.name);
 
                 const pdfData = atob(parsedTemplate.lastSignedPdf || parsedTemplate.pdf);
@@ -59,6 +61,29 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
         };
         loadTemplate();
     }, [templateId, recipientId]);
+
+    const handleFileUpload = (fieldId: string, file: File) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            if (event.target?.result) {
+                const newAttachment: Attachment = {
+                    id: `${fieldId}-${Date.now()}`,
+                    fieldId,
+                    recipientId,
+                    fileName: file.name,
+                    dataUrl: event.target.result as string,
+                    mimeType: file.type,
+                };
+                setAttachments(prev => [...prev.filter(a => a.fieldId !== fieldId), newAttachment]);
+            }
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleFileRemove = (fieldId: string) => {
+        setAttachments(prev => prev.filter(a => a.fieldId !== fieldId));
+    };
+
 
     const handleSignerInfoSubmit = async (signerInfo: SignerInfo) => {
         setIsSignerInfoModalOpen(false);
@@ -79,6 +104,7 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
             
             const placements: SignaturePlacement[] = [];
             for (const field of recipientFields) {
+                if (field.type === 'FILE_UPLOAD') continue;
                 const page = await pdfDoc.getPage(field.page);
                 const viewport = page.getViewport({ scale: 1 });
                 placements.push({
@@ -93,21 +119,19 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
 
             const signedPdfBytes = await applyDigitalSignatures(originalPdfBuffer.buffer, placements, signerInfo);
 
-            // Update template in localStorage
             const updatedTemplate = { ...template };
-            // Convert signed PDF to base64
             let binary = '';
             for (let i = 0; i < signedPdfBytes.length; i++) {
                 binary += String.fromCharCode(signedPdfBytes[i]);
             }
             updatedTemplate.lastSignedPdf = btoa(binary);
 
-            // Update recipient status
+            updatedTemplate.attachments = attachments;
+
             updatedTemplate.recipients = updatedTemplate.recipients.map(r => 
                 r.id === recipientId ? { ...r, status: 'Signed', signedAt: new Date().toISOString() } : r
             );
 
-            // Update overall document status if all have signed
             const allSigned = updatedTemplate.recipients.every(r => r.status === 'Signed');
             if (allSigned) {
                 updatedTemplate.status = 'Completed';
@@ -143,7 +167,9 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
     
     if (!template || !pdfDoc) return null;
 
-    const fieldsForRecipient = template.fields.filter(f => f.recipientId === recipientId);
+    const requiredUploadFields = template.fields.filter(f => f.recipientId === recipientId && f.type === 'FILE_UPLOAD');
+    const uploadedFieldIds = new Set(attachments.filter(a => a.recipientId === recipientId).map(a => a.fieldId));
+    const allFilesUploaded = requiredUploadFields.every(f => uploadedFieldIds.has(f.id));
 
     return (
         <div className="flex flex-col h-screen overflow-hidden">
@@ -155,7 +181,9 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
                 </div>
                 <button
                     onClick={() => setIsSignerInfoModalOpen(true)}
-                    className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                    disabled={!allFilesUploaded}
+                    title={!allFilesUploaded ? "Please upload all required files to continue." : "Finalize and sign the document"}
+                    className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
                 >
                     Finalize & Sign Document
                 </button>
@@ -165,8 +193,12 @@ const SigningView: React.FC<SigningViewProps> = ({ templateId, recipientId, onSi
                     pdfDoc={pdfDoc}
                     pageNumber={currentPage}
                     pageRotations={{}}
-                    fields={fieldsForRecipient.filter(f => f.page === currentPage)}
+                    fields={template.fields.filter(f => f.page === currentPage)}
                     recipients={template.recipients}
+                    signingRecipientId={recipientId}
+                    onFileUpload={handleFileUpload}
+                    onFileRemove={handleFileRemove}
+                    attachments={attachments}
                 />
             </main>
              <footer className="bg-slate-900 p-2 flex items-center justify-center border-t border-slate-700/50">
